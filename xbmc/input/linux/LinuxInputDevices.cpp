@@ -255,6 +255,8 @@ KeyMap keyMap[] = {
   { 378               , XBMCK_RIGHT       }, // Green
   { 381               , XBMCK_UP          }, // Yellow
   { 366               , XBMCK_DOWN        }, // Blue
+  // Rii i7 Home button / wetek openelec remote (code 172)
+  { KEY_HOMEPAGE      , XBMCK_HOME        },
 };
 
 typedef enum
@@ -275,12 +277,12 @@ typedef enum
 
 static char remoteStatus = 0xFF; // paired, battery OK
 
-CLinuxInputDevice::CLinuxInputDevice(const std::string fileName, int index)
+CLinuxInputDevice::CLinuxInputDevice(const std::string& fileName, int index):
+  m_fileName(fileName)
 {
   m_fd = -1;
   m_vt_fd = -1;
   m_hasLeds = false;
-  m_fileName = fileName;
   m_ledState[0] = false;
   m_ledState[1] = false;
   m_ledState[2] = false;

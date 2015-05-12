@@ -26,6 +26,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <algorithm>
 
 #include "AESinkALSA.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
@@ -338,8 +339,10 @@ snd_pcm_chmap_t* CAESinkALSA::CopyALSAchmap(snd_pcm_chmap_t* alsaMap)
 
 std::string CAESinkALSA::ALSAchmapToString(snd_pcm_chmap_t* alsaMap)
 {
-  char buf[64] = { 0 };
-  int err = snd_pcm_chmap_print(alsaMap, sizeof(buf), buf);
+  char buf[128] = { 0 };
+  // ALSA bug - buffer overflow by a factor of 2 is possible
+  // http://mailman.alsa-project.org/pipermail/alsa-devel/2014-December/085815.html
+  int err = snd_pcm_chmap_print(alsaMap, sizeof(buf) / 2, buf);
   if (err < 0)
     return "Error";
   return std::string(buf);
@@ -1101,6 +1104,10 @@ bool CAESinkALSA::OpenPCMDevice(const std::string &name, const std::string &para
 
 void CAESinkALSA::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 {
+#if HAVE_LIBUDEV
+  m_deviceMonitor.Start();
+#endif
+
   /* ensure that ALSA has been initialized */
   snd_lib_error_set_handler(sndLibErrorHandler);
   if(!snd_config || force)
@@ -1113,6 +1120,8 @@ void CAESinkALSA::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 
   snd_config_t *config;
   snd_config_copy(&config, snd_config);
+
+  m_controlMonitor.Clear();
 
   /* Always enumerate the default device.
    * Note: If "default" is a stereo device, EnumerateDevice()
@@ -1190,6 +1199,8 @@ void CAESinkALSA::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
     free(desc);
   }
   snd_device_name_free_hint(hints);
+
+  m_controlMonitor.Start();
 
   /* set the displayname for default device */
   if (!list.empty() && list[0].m_deviceName == "default")
@@ -1371,6 +1382,10 @@ void CAESinkALSA::EnumerateDevice(AEDeviceInfoList &list, const std::string &dev
           {
             snd_hctl_load(hctl);
             bool badHDMI = false;
+
+            /* add ELD to monitoring */
+            m_controlMonitor.Add(strHwName, SND_CTL_ELEM_IFACE_PCM, dev, "ELD");
+
             if (!GetELD(hctl, dev, info, badHDMI))
               CLog::Log(LOGDEBUG, "CAESinkALSA - Unable to obtain ELD information for device \"%s\" (not supported by device, or kernel older than 3.2)",
                         device.c_str());
@@ -1611,5 +1626,10 @@ void CAESinkALSA::sndLibErrorHandler(const char *file, int line, const char *fun
   }
   va_end(arg);
 }
+
+#if HAVE_LIBUDEV
+CALSADeviceMonitor CAESinkALSA::m_deviceMonitor; // ARGH
+#endif
+CALSAHControlMonitor CAESinkALSA::m_controlMonitor; // ARGH
 
 #endif

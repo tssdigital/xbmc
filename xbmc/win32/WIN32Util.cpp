@@ -42,6 +42,9 @@
 #include "utils/Environment.h"
 #include "utils/URIUtils.h"
 #include "utils/StringUtils.h"
+#include "win32/crts_caller.h"
+
+#include <cassert>
 
 #define DLL_ENV_PATH "special://xbmc/system/;" \
                      "special://xbmc/system/players/dvdplayer/;" \
@@ -50,6 +53,8 @@
                      "special://xbmc/system/python/;" \
                      "special://xbmc/system/webserver/;" \
                      "special://xbmc/"
+
+#include <locale.h>
 
 extern HWND g_hWnd;
 
@@ -412,7 +417,7 @@ std::string CWIN32Util::GetSystemPath()
 std::string CWIN32Util::GetProfilePath()
 {
   std::string strProfilePath;
-  CStdString strHomePath;
+  std::string strHomePath;
 
   CUtil::GetHomePath(strHomePath);
 
@@ -772,8 +777,8 @@ bool CWIN32Util::EjectDrive(const char cDriveLetter)
   char VetoName[MAX_PATH];
   bool bSuccess = false;
 
-  res = CM_Get_Parent(&DevInst, DevInst, 0); // disk's parent, e.g. the USB bridge, the SATA controller....
-  res = CM_Get_DevNode_Status(&Status, &ProblemNumber, DevInst, 0);
+  CM_Get_Parent(&DevInst, DevInst, 0); // disk's parent, e.g. the USB bridge, the SATA controller....
+  CM_Get_DevNode_Status(&Status, &ProblemNumber, DevInst, 0);
 
   for(int i=0;i<3;i++)
   {
@@ -808,7 +813,7 @@ bool CWIN32Util::HasGLDefaultDrivers()
 {
   unsigned int a=0,b=0;
 
-  CStdString strVendor = g_Windowing.GetRenderVendor();
+  std::string strVendor = g_Windowing.GetRenderVendor();
   g_Windowing.GetRenderVersion(a, b);
 
   if(strVendor.find("Microsoft")!=strVendor.npos && a==1 && b==1)
@@ -972,9 +977,9 @@ extern "C"
 {
   FILE *fopen_utf8(const char *_Filename, const char *_Mode)
   {
-    CStdStringW wfilename, wmode;
+    std::string modetmp = _Mode;
+    std::wstring wfilename, wmode(modetmp.begin(), modetmp.end());
     g_charsetConverter.utf8ToW(_Filename, wfilename, false);
-    wmode = _Mode;
     return _wfopen(wfilename.c_str(), wmode.c_str());
   }
 }
@@ -1387,8 +1392,14 @@ LONG CWIN32Util::UtilRegGetValue( const HKEY hKey, const char *const pcKey, DWOR
   {
     if (ppcBuffer)
     {
-      char *pcValue=*ppcBuffer;
-      if (!pcValue || !pdwSizeBuff || dwSize +dwSizeAdd > *pdwSizeBuff) pcValue= (char*)realloc(pcValue, dwSize +dwSizeAdd);
+      char *pcValue=*ppcBuffer, *pcValueTmp;
+      if (!pcValue || !pdwSizeBuff || dwSize +dwSizeAdd > *pdwSizeBuff) {
+        pcValueTmp = (char*)realloc(pcValue, dwSize +dwSizeAdd);
+        if(pcValueTmp != NULL)
+        {
+          pcValue = pcValueTmp;
+        }
+      }
       lRet= RegQueryValueEx(hKey,pcKey,NULL,NULL,(LPBYTE)pcValue,&dwSize);
 
       if ( lRet == ERROR_SUCCESS || *ppcBuffer ) *ppcBuffer= pcValue;
@@ -1509,7 +1520,8 @@ void CWIN32Util::CropSource(CRect& src, CRect& dst, CRect target)
 
 void CWinIdleTimer::StartZero()
 {
-  SetThreadExecutionState(ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED);
+  if (!g_application.IsDPMSActive())
+    SetThreadExecutionState(ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED);
   CStopWatch::StartZero();
 }
 
@@ -1598,3 +1610,10 @@ std::string CWIN32Util::WUSysMsg(DWORD dwError)
   else
     return StringUtils::Format("Unknown error (0x%X)", dwError);
 }
+
+bool CWIN32Util::SetThreadLocalLocale(bool enable /* = true */)
+{
+  const int param = enable ? _ENABLE_PER_THREAD_LOCALE : _DISABLE_PER_THREAD_LOCALE;
+  return CALL_IN_CRTS(_configthreadlocale, param) != -1;
+}
+

@@ -29,6 +29,7 @@
 
 #include <vector>
 #include <climits>
+#include <cassert>
 
 #ifdef TARGET_POSIX
 #include <errno.h>
@@ -121,6 +122,19 @@ extern "C" size_t header_callback(void *ptr, size_t size, size_t nmemb, void *st
 {
   CCurlFile::CReadState *state = (CCurlFile::CReadState *)stream;
   return state->HeaderCallback(ptr, size, nmemb);
+}
+
+/* used only by CCurlFile::Stat to bail out of unwanted transfers */
+extern "C" int transfer_abort_callback(void *clientp,
+               curl_off_t dltotal,
+               curl_off_t dlnow,
+               curl_off_t ultotal,
+               curl_off_t ulnow)
+{
+  if(dlnow > 0)
+    return 1;
+  else
+    return 0;
 }
 
 /* fix for silly behavior of realloc */
@@ -225,6 +239,7 @@ CCurlFile::CReadState::CReadState()
   m_multiHandle = NULL;
   m_overflowBuffer = NULL;
   m_overflowSize = 0;
+  m_stillRunning = 0;
   m_filePos = 0;
   m_fileSize = 0;
   m_bufferSize = 0;
@@ -374,6 +389,9 @@ CCurlFile::~CCurlFile()
 }
 
 CCurlFile::CCurlFile()
+ : m_writeOffset(0)
+ , m_overflowBuffer(NULL)
+ , m_overflowSize(0)
 {
   g_curlInterface.Load(); // loads the curl dll and resolves exports etc.
   m_opened = false;
@@ -776,6 +794,8 @@ void CCurlFile::ParseAndCorrectUrl(CURL &url2)
           SetStreamProxy(value, PROXY_HTTP);
         else if (name == "sslcipherlist")
           m_cipherlist = value;
+        else if (name == "connection-timeout")
+          m_connecttimeout = strtol(value.c_str(), NULL, 10);
         else
           SetRequestHeader(it->first, value);
       }
@@ -870,7 +890,7 @@ bool CCurlFile::Download(const std::string& strURL, const std::string& strFileNa
   if (pdwSize != NULL)
     *pdwSize = written > 0 ? written : 0;
 
-  return written == strData.size();
+  return written == static_cast<ssize_t>(strData.size());
 }
 
 // Detect whether we are "online" or not! Very simple and dirty!
@@ -1115,7 +1135,7 @@ bool CCurlFile::Exists(const CURL& url)
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_NOBODY, 1);
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_WRITEDATA, NULL); /* will cause write failure*/
 
-  if(url2.IsProtocol("ftp"))
+  if(url2.IsProtocol("ftp") || url2.IsProtocol("ftps"))
   {
     g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_FILETIME, 1);
     // nocwd is less standard, will return empty list for non-existed remote dir on some ftp server, avoid it.
@@ -1210,6 +1230,7 @@ int64_t CCurlFile::Seek(int64_t iFilePosition, int iWhence)
   SetCommonOptions(m_state);
 
   /* caller might have changed some headers (needed for daap)*/
+  // TODO: daap is gone. is this needed for something else?
   SetRequestHeaders(m_state);
 
   m_state->m_filePos = nextPos;
@@ -1281,7 +1302,6 @@ int CCurlFile::Stat(const CURL& url, struct __stat64* buffer)
   SetRequestHeaders(m_state);
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_TIMEOUT, g_advancedSettings.m_curlconnecttimeout);
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_NOBODY, 1);
-  g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_WRITEDATA, NULL); /* will cause write failure*/
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_FILETIME , 1); 
 
   if(url2.IsProtocol("ftp"))
@@ -1307,25 +1327,24 @@ int CCurlFile::Stat(const CURL& url, struct __stat64* buffer)
   || result == CURLE_RECV_ERROR /* some silly shoutcast servers */ )
   {
     /* some http servers and shoutcast servers don't give us any data on a head request */
-    /* request normal and just fail out, it's their loss */
+    /* request normal and just bail out via progress meter callback after we received data */
     /* somehow curl doesn't reset CURLOPT_NOBODY properly so reset everything */
     SetCommonOptions(m_state);
     SetRequestHeaders(m_state);
     g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_TIMEOUT, g_advancedSettings.m_curlconnecttimeout);
-    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_RANGE, "0-0");
-    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_WRITEDATA, NULL); /* will cause write failure*/
-    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_FILETIME, 1); 
+    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_FILETIME, 1);
+#if LIBCURL_VERSION_NUM >= 0x072000 // 0.7.32
+    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_XFERINFOFUNCTION, transfer_abort_callback);
+#else
+    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_PROGRESSFUNCTION, transfer_abort_callback);
+#endif
+    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_NOPROGRESS, 0);
+
     result = g_curlInterface.easy_perform(m_state->m_easyHandle);
+
   }
 
-  if( result == CURLE_HTTP_RANGE_ERROR )
-  {
-    /* crap can't use the range option, disable it and try again */
-    g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_RANGE, NULL);
-    result = g_curlInterface.easy_perform(m_state->m_easyHandle);
-  }
-
-  if( result != CURLE_WRITE_ERROR && result != CURLE_OK )
+  if( result != CURLE_ABORTED_BY_CALLBACK && result != CURLE_OK )
   {
     g_curlInterface.easy_release(&m_state->m_easyHandle, NULL);
     errno = ENOENT;
@@ -1558,7 +1577,7 @@ bool CCurlFile::CReadState::FillBuffer(unsigned int want)
         do
         {
           unsigned int time_left = endTime.MillisLeft();
-          struct timeval t = { time_left / 1000, (time_left % 1000) * 1000 };
+          struct timeval t = { (int)time_left / 1000, ((int)time_left % 1000) * 1000 };
 
           // Wait until data is available or a timeout occurs.
           rc = select(maxfd + 1, &fdread, &fdwrite, &fdexcep, &t);

@@ -471,6 +471,7 @@ CDecoder::CDecoder() : m_vaapiOutput(&m_inMsgEvent)
   m_vaapiConfig.contextId = VA_INVALID_ID;
   m_vaapiConfig.configId = VA_INVALID_ID;
   m_avctx = NULL;
+  m_getBufferError = false;
 }
 
 CDecoder::~CDecoder()
@@ -478,7 +479,7 @@ CDecoder::~CDecoder()
   Close();
 }
 
-bool CDecoder::Open(AVCodecContext* avctx, const enum PixelFormat fmt, unsigned int surfaces)
+bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum PixelFormat fmt, unsigned int surfaces)
 {
   // don't support broken wrappers by default
   // nvidia cards with a vaapi to vdpau wrapper
@@ -596,7 +597,9 @@ bool CDecoder::Open(AVCodecContext* avctx, const enum PixelFormat fmt, unsigned 
   else
     m_vaapiConfig.maxReferences = 2;
 
-  m_vaapiConfig.maxReferences += surfaces;
+  // add an extra surface for safety, some faulty material
+  // make ffmpeg require more buffers
+  m_vaapiConfig.maxReferences += surfaces + 1;
 
   if (!ConfigVAAPI())
   {
@@ -607,7 +610,11 @@ bool CDecoder::Open(AVCodecContext* avctx, const enum PixelFormat fmt, unsigned 
   avctx->get_buffer2 = CDecoder::FFGetBuffer;
   avctx->slice_flags = SLICE_FLAG_CODED_ORDER|SLICE_FLAG_ALLOW_FIELD;
 
-  m_avctx = avctx;
+  mainctx->hwaccel_context = &m_hwContext;
+  mainctx->get_buffer2 = CDecoder::FFGetBuffer;
+  mainctx->slice_flags = SLICE_FLAG_CODED_ORDER|SLICE_FLAG_ALLOW_FIELD;
+
+  m_avctx = mainctx;
   return true;
 }
 
@@ -695,9 +702,9 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
     uint16_t decoded, processed, render;
     bool vpp;
     va->m_bufferStats.Get(decoded, processed, render, vpp);
-    CLog::Log(LOGERROR, "VAAPI::FFGetBuffer - no surface available - dec: %d, render: %d",
+    CLog::Log(LOGWARNING, "VAAPI::FFGetBuffer - no surface available - dec: %d, render: %d",
                          decoded, render);
-    va->m_DisplayState = VAAPI_ERROR;
+    va->m_getBufferError = true;
     return -1;
   }
 
@@ -732,6 +739,8 @@ void CDecoder::FFReleaseBuffer(uint8_t *data)
 
 int CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame)
 {
+  m_getBufferError = false;
+
   int result = Check(avctx);
   if (result)
     return result;
@@ -822,7 +831,7 @@ int CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame)
       msg->Release();
     }
 
-    if (decoded < 2 && processed < 3 && m_videoSurfaces.HasFree())
+    if (decoded < 2 && processed < 3)
     {
       retval |= VC_BUFFER;
     }
@@ -848,6 +857,7 @@ int CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame)
 
 int CDecoder::Check(AVCodecContext* avctx)
 {
+  int ret = 0;
   EDisplayState state;
 
   { CSingleLock lock(m_DecoderSection);
@@ -889,7 +899,19 @@ int CDecoder::Check(AVCodecContext* avctx)
     else
       return VC_ERROR;
   }
-  return 0;
+
+  if (m_getBufferError)
+  {
+    // if there is no other error, sleep for a short while
+    // in order not to drain player's message queue
+    if (!ret)
+      Sleep(20);
+
+    ret |= VC_NOBUFFER;
+  }
+
+  m_getBufferError = false;
+  return ret;
 }
 
 bool CDecoder::GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture* picture)

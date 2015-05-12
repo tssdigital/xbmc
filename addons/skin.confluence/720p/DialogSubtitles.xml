@@ -7,9 +7,9 @@
 	</coordinates>
 	<controls>
 		<control type="group" id="250">
-			<animation effect="slide" start="0,0" end="900,0" time="500" tween="quadratic" easing="out">WindowClose</animation> 
+			<animation effect="slide" start="0,0" end="900,0" time="375" tween="quadratic" easing="out">WindowClose</animation>
 			<animation type="Conditional" condition="Control.HasFocus(150) | Control.HasFocus(160)" reversible="true">
-				<effect type="slide" end="-250,0" time="400"/>
+				<effect type="slide" end="-250,0" time="300" />
 			</animation>
 			<control type="button" id="8999">
 				<description>Fake button for mouse control</description>
@@ -145,7 +145,7 @@
 							<top>0</top>
 							<width>90</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -173,7 +173,7 @@
 							<top>0</top>
 							<width>495</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -218,7 +218,7 @@
 							<top>0</top>
 							<width>90</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -246,7 +246,7 @@
 							<top>0</top>
 							<width>495</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -326,7 +326,7 @@
 					<width>720</width>
 					<height>4</height>
 					<texture>separator.png</texture>
-					<animation effect="rotate" start="0" end="90" center="auto" time="0" condition="true">Conditional</animation>		
+					<animation effect="rotate" start="0" end="90" center="auto" time="0" condition="true">Conditional</animation>
 				</control>
 				<control type="label">
 					<left>905</left>
@@ -373,7 +373,7 @@
 							<top>0</top>
 							<width>230</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -402,7 +402,7 @@
 							<top>0</top>
 							<width>230</width>
 							<height>38</height>
-							<font>font18</font>
+							<font>font13</font>
 							<aligny>center</aligny>
 							<textcolor>white</textcolor>
 							<selectedcolor>selected</selectedcolor>
@@ -426,6 +426,7 @@
 					<textcolor>white</textcolor>
 					<focusedcolor>white</focusedcolor>
 					<align>center</align>
+					<hitrect x="925" y="605" w="200" h="100" />
 				</control>
 			</control>
 		</control>

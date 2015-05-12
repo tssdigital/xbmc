@@ -122,6 +122,9 @@ bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
       if(StringUtils::EndsWith(strFile, "$") && aDir.type == SMBC_FILE_SHARE )
         continue;
 
+      if (StringUtils::StartsWith(strFile, "."))
+        hidden = true;
+
       // only stat files that can give proper responses
       if ( aDir.type == SMBC_FILE ||
            aDir.type == SMBC_DIR )
@@ -279,7 +282,6 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
 
 bool CSMBDirectory::Create(const CURL& url2)
 {
-  bool success = true;
   CSingleLock lock(smb);
   smb.Init();
 
@@ -288,7 +290,7 @@ bool CSMBDirectory::Create(const CURL& url2)
   std::string strFileName = smb.URLEncode(url);
 
   int result = smbc_mkdir(strFileName.c_str(), 0);
-  success = (result == 0 || EEXIST == errno);
+  bool success = (result == 0 || EEXIST == errno);
   if(!success)
     CLog::Log(LOGERROR, "%s - Error( %s )", __FUNCTION__, strerror(errno));
 

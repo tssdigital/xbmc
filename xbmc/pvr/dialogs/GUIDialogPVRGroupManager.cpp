@@ -24,7 +24,7 @@
 #include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
 #include "guilib/LocalizeStrings.h"
 #include "guilib/GUIRadioButtonControl.h"
 #include "utils/StringUtils.h"
@@ -49,6 +49,10 @@ using namespace PVR;
 CGUIDialogPVRGroupManager::CGUIDialogPVRGroupManager() :
     CGUIDialog(WINDOW_DIALOG_PVR_GROUP_MANAGER, "DialogPVRGroupManager.xml")
 {
+  m_bIsRadio = 0;
+  m_iSelectedUngroupedChannel = 0;
+  m_iSelectedGroupMember = 0;
+  m_iSelectedChannelGroup = 0;
   m_ungroupedChannels = new CFileItemList;
   m_groupMembers      = new CFileItemList;
   m_channelGroups     = new CFileItemList;
@@ -193,7 +197,7 @@ bool CGUIDialogPVRGroupManager::ActionButtonUngroupedChannels(CGUIMessage &messa
       else if (m_ungroupedChannels->GetFileCount() > 0)
       {
         CFileItemPtr pItemChannel = m_ungroupedChannels->Get(m_iSelectedUngroupedChannel);
-        if (m_selectedGroup->AddToGroup(*pItemChannel->GetPVRChannelInfoTag()))
+        if (m_selectedGroup->AddToGroup(pItemChannel->GetPVRChannelInfoTag()))
           Update();
       }
     }
@@ -218,7 +222,7 @@ bool CGUIDialogPVRGroupManager::ActionButtonGroupMembers(CGUIMessage &message)
       if (m_selectedGroup && m_groupMembers->GetFileCount() > 0)
       {
         CFileItemPtr pItemChannel = m_groupMembers->Get(m_iSelectedGroupMember);
-        m_selectedGroup->RemoveFromGroup(*pItemChannel->GetPVRChannelInfoTag());
+        m_selectedGroup->RemoveFromGroup(pItemChannel->GetPVRChannelInfoTag());
         Update();
       }
     }
